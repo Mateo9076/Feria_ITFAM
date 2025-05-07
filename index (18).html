@@ -1,0 +1,1106 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brain Surge - Quiz Challenge</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/framer-motion@11.11.1/dist/framer-motion.js" onerror="console.error('Failed to load Framer Motion')"></script>
+    <script defer src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.22.9/babel.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            font-family: 'Poppins', sans-serif;
+            color: #e0e7ff;
+            margin: 0;
+            overflow-x: hidden;
+        }
+        #root {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 1rem;
+            overflow-y: auto;
+        }
+        .progress-bar {
+            background: linear-gradient(to right, #22d3ee, #10b981 var(--progress), #4b5563 var(--progress));
+            transition: width 0.5s ease;
+            box-shadow: 0 0 10px #22d3ee;
+        }
+        @keyframes shake {
+            0% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            50% { transform: translateX(10px); }
+            75% { transform: translateX(-10px); }
+            100% { transform: translateX(0); }
+        }
+        .shake {
+            animation: shake 0.6s;
+        }
+        .spinner {
+            border: 6px solid #4b5563;
+            border-top: 6px solid #22d3ee;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .neumorphic {
+            background: linear-gradient(145deg, #1f2937, #2d3748);
+            box-shadow: 8px 8px 16px #14171f, -8px -8px 16px #374151;
+            border-radius: 16px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .neumorphic:hover {
+            transform: translateY(-4px);
+            box-shadow: 12px 12px 24px #14171f, -12px -12px 24px #374151;
+        }
+        button {
+            min-width: 140px;
+            min-height: 48px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        button:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 0 20px rgba(34, 211, 238, 0.6);
+        }
+        button::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 300%;
+            height: 300%;
+            background: radial-gradient(circle, rgba(34, 211, 238, 0.3), transparent);
+            transform: translate(-50%, -50%) scale(0);
+            transition: transform 0.5s ease;
+        }
+        button:hover::before {
+            transform: translate(-50%, -50%) scale(1);
+        }
+        .highscore-row:nth-child(odd) {
+            background: #2d3748;
+        }
+        .highscore-row:nth-child(even) {
+            background: #1f2937;
+        }
+        .player-score {
+            background: linear-gradient(to right, #22d3ee, #10b981) !important;
+            color: #0f172a !important;
+            font-weight: 700;
+        }
+        canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: -1;
+        }
+        /* Loading Screen Styles */
+        .loading-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: url('https://images.unsplash.com/photo-1554050857-c84a8abdb5e2?q=80&w=2070&auto=format&fit=crop') no-repeat center/cover;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            animation: pulseBackground 10s infinite alternate;
+        }
+        @keyframes pulseBackground {
+            0% { filter: brightness(1); }
+            100% { filter: brightness(1.2); }
+        }
+        .loading-bar-container {
+            width: 90%;
+            max-width: 500px;
+            height: 24px;
+            background: #1f2937;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 0 15px rgba(34, 211, 238, 0.6);
+            margin-bottom: 24px;
+        }
+        .loading-bar {
+            width: 0;
+            height: 100%;
+            background: linear-gradient(90deg, #22d3ee, #ec4899, #10b981);
+            animation: load 4s ease-in-out forwards;
+            box-shadow: 0 0 10px #22d3ee;
+        }
+        @keyframes load {
+            0% { width: 0; }
+            100% { width: 100%; }
+        }
+        .tip-text {
+            color: #e0e7ff;
+            font-size: 1.1rem;
+            font-weight: 500;
+            text-align: center;
+            max-width: 80%;
+            background: rgba(15, 23, 42, 0.8);
+            padding: 12px 24px;
+            border-radius: 10px;
+            animation: fadeInOut 6s infinite;
+            box-shadow: 0 0 10px rgba(34, 211, 238, 0.4);
+        }
+        @keyframes fadeInOut {
+            0%, 100% { opacity: 0; transform: translateY(12px); }
+            20%, 80% { opacity: 1; transform: translateY(0); }
+        }
+        /* Main Menu Styles */
+        .main-menu {
+            position: relative;
+            width: 100%;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            overflow-y: auto;
+            padding: 1.5rem;
+        }
+        .menu-title {
+            font-size: 3rem;
+            font-weight: 700;
+            color: #22d3ee;
+            text-shadow: 0 0 15px rgba(34, 211, 238, 0.8), 0 0 30px rgba(34, 211, 238, 0.4);
+            margin-bottom: 2.5rem;
+            animation: glow 2s ease-in-out infinite;
+        }
+        @keyframes glow {
+            0%, 100% { text-shadow: 0 0 15px rgba(34, 211, 238, 0.8), 0 0 30px rgba(34, 211, 238, 0.4); }
+            50% { text-shadow: 0 0 25px rgba(34, 211, 238, 1), 0 0 50px rgba(34, 211, 238, 0.6); }
+        }
+        .menu-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            width: 90%;
+            max-width: 450px;
+        }
+        .menu-button {
+            background: linear-gradient(45deg, #22d3ee, #ec4899);
+            color: #0f172a;
+            font-size: 1.3rem;
+            font-weight: 600;
+            padding: 16px;
+            border-radius: 14px;
+            text-align: center;
+            transition: all 0.3s ease;
+            box-shadow: 0 6px 20px rgba(34, 211, 238, 0.4);
+        }
+        .menu-button:hover {
+            transform: scale(1.08);
+            box-shadow: 0 0 30px rgba(34, 211, 238, 0.8);
+        }
+        .player-info {
+            position: absolute;
+            top: 24px;
+            left: 24px;
+            color: #e0e7ff;
+            font-size: 1.1rem;
+            font-weight: 600;
+            background: linear-gradient(45deg, #22d3ee, #10b981);
+            padding: 8px 16px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(34, 211, 238, 0.4);
+        }
+        .particle-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+        /* Scrollbar Styling */
+        .scrollable-container::-webkit-scrollbar {
+            width: 10px;
+        }
+        .scrollable-container::-webkit-scrollbar-thumb {
+            background: linear-gradient(#22d3ee, #ec4899);
+            border-radius: 5px;
+        }
+        .scrollable-container::-webkit-scrollbar-track {
+            background: #1f2937;
+        }
+        /* Responsive Adjustments */
+        @media (max-width: 640px) {
+            .menu-title {
+                font-size: 2.2rem;
+            }
+            .menu-button {
+                font-size: 1.1rem;
+                padding: 12px;
+            }
+            .neumorphic {
+                padding: 1.2rem;
+                max-width: 95%;
+            }
+            .text-2xl.sm:text-3xl {
+                font-size: 1.6rem;
+            }
+            .text-base.sm:text-lg {
+                font-size: 0.9rem;
+            }
+        }
+        @media (min-width: 640px) {
+            .menu-title {
+                font-size: 4rem;
+            }
+            .menu-button {
+                font-size: 1.5rem;
+            }
+            .player-info {
+                font-size: 1.3rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <canvas id="particles"></canvas>
+
+    <!-- Sonidos -->
+    <audio id="correct-sound" src="https://www.myinstants.com/media/sounds/correct.mp3"></audio>
+    <audio id="wrong-sound" src="https://www.myinstants.com/media/sounds/wrong.mp3"></audio>
+    <audio id="tick-sound" src="https://www.myinstants.com/media/sounds/tick.mp3"></audio>
+    <audio id="clock-tick" src="https://www.myinstants.com/media/sounds/clock-tick.mp3"></audio>
+    <!-- Background Music (Uncomment and provide a valid URL) -->
+    <!-- <audio id="menu-music" loop src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"></audio> -->
+
+    <script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+            return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+            if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+                try {
+                    var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                    var firstSheetName = workbook.SheetNames[0];
+                    var worksheet = workbook.Sheets[firstSheetName];
+                    var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                    var filteredData = jsonData.filter(row => row.some(filledCell));
+                    var headerRowIndex = filteredData.findIndex((row, index) =>
+                        row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                    );
+                    if (headerRowIndex === -1 || headerRowIndex > 25) {
+                        headerRowIndex = 0;
+                    }
+                    var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex));
+                    csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                    return csv;
+                } catch (e) {
+                    console.error(e);
+                    return "";
+                }
+            }
+            return gk_fileData[filename] || "";
+        }
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // Safely access Framer Motion with fallback
+        let motion = window.motion || (window.framer && window.framer.motion);
+        let AnimatePresence = window.AnimatePresence || (window.framer && window.framer.AnimatePresence);
+
+        // Fallback to vanilla React if Framer Motion fails
+        const useMotion = !!motion && !!AnimatePresence;
+        if (!useMotion) {
+            console.warn("Framer Motion no disponible, usando transiciones de React");
+            motion = { div: 'div' };
+            AnimatePresence = ({ children }) => children;
+        }
+
+        const quizData = {
+            sociales: [
+                { question: "¿En qué año logró la República Dominicana su independencia de Haití?", options: ["1844", "1821", "1865", "1492"], correct: "1844" },
+                { question: "¿Quién es conocido como el Padre de la Patria dominicana?", options: ["Juan Pablo Duarte", "Pedro Santana", "Buenaventura Báez", "Ulises Heureaux"], correct: "Juan Pablo Duarte" },
+                { question: "¿Qué movimiento fundó Juan Pablo Duarte para lograr la independencia?", options: ["La Trinitaria", "Los Alcarrizos", "La Concordia", "Los Restauradores"], correct: "La Trinitaria" },
+                { question: "¿Qué batalla marcó el inicio de la Guerra de Independencia Dominicana en 1844?", options: ["Batalla del 19 de Marzo", "Batalla de Las Carreras", "Batalla de Santiago", "Batalla de Azua"], correct: "Batalla del 19 de Marzo" },
+                { question: "¿Quién fue el primer presidente de la República Dominicana?", options: ["Pedro Santana", "Juan Pablo Duarte", "Matías Ramón Mella", "Francisco del Rosario Sánchez"], correct: "Pedro Santana" },
+                { question: "¿En qué año se firmó el Tratado de Basilea que cedió Santo Domingo a Francia?", options: ["1795", "1801", "1861", "1844"], correct: "1795" },
+                { question: "¿Qué período se conoce como la 'Ocupación Haitiana' en la historia dominicana?", options: ["1822-1844", "1801-1809", "1861-1865", "1916-1924"], correct: "1822-1844" },
+                { question: "¿Qué evento marcó el fin de la primera ocupación estadounidense en la República Dominicana?", options: ["Retirada de 1924", "Tratado de 1916", "Batalla de 1865", "Independencia de 1844"], correct: "Retirada de 1924" },
+                { question: "¿Quién fue el líder de la Restauración Dominicana en 1863?", options: ["Gregorio Luperón", "Juan Pablo Duarte", "Pedro Santana", "Buenaventura Báez"], correct: "Gregorio Luperón" },
+                { question: "¿En qué año se proclamó la Segunda República Dominicana tras la Guerra de la Restauración?", options: ["1865", "1844", "1874", "1882"], correct: "1865" }
+            ],
+            matematica: [
+                { question: "¿Cuánto es 2 + 3?", options: ["4", "5", "6", "7"], correct: "5" },
+                { question: "¿Cuál es el valor de π aproximadamente?", options: ["3.14", "2.71", "1.61", "4.20"], correct: "3.14" },
+                { question: "¿Qué es 5²?", options: ["10", "15", "20", "25"], correct: "25" },
+                { question: "¿Cuántos lados tiene un triángulo?", options: ["3", "4", "5", "6"], correct: "3" },
+                { question: "¿Cuál es el resultado de 8 × 7?", options: ["54", "56", "58", "60"], correct: "56" },
+                { question: "¿Qué es la raíz cuadrada de 16?", options: ["2", "4", "6", "8"], correct: "4" },
+                { question: "¿Cuánto es 100 ÷ 5?", options: ["10", "15", "20", "25"], correct: "20" },
+                { question: "¿Cuál es el perímetro de un cuadrado de lado 4?", options: ["12", "16", "20", "24"], correct: "16" },
+                { question: "¿Qué número sigue en la secuencia: 2, 4, 6, ...?", options: ["8", "10", "12", "14"], correct: "8" },
+                { question: "¿Cuánto es 3/4 de 12?", options: ["6", "9", "10", "12"], correct: "9" }
+            ],
+            naturales: [
+                { question: "¿Qué gas es más abundante en la atmósfera?", options: ["Oxígeno", "Nitrógeno", "Dióxido de carbono", "Hidrógeno"], correct: "Nitrógeno" },
+                { question: "¿Qué planeta es el más grande?", options: ["Tierra", "Júpiter", "Saturno", "Marte"], correct: "Júpiter" },
+                { question: "¿Qué animal es un mamífero?", options: ["Cocodrilo", "Serpiente", "Delfín", "Tortuga"], correct: "Delfín" },
+                { question: "¿En qué capa de la Tierra vivimos?", options: ["Núcleo", "Manto", "Corteza", "Litosfera"], correct: "Corteza" },
+                { question: "¿Qué elemento tiene el símbolo H?", options: ["Helio", "Hidrógeno", "Hierro", "Hafnio"], correct: "Hidrógeno" },
+                { question: "¿Qué causa las mareas?", options: ["Sol", "Luna", "Viento", "Corrientes"], correct: "Luna" },
+                { question: "¿Qué tipo de energía usa el Sol?", options: ["Nuclear", "Eólica", "Geotérmica", "Hidráulica"], correct: "Nuclear" },
+                { question: "¿Qué órgano bombea sangre?", options: ["Hígado", "Pulmones", "Corazón", "Riñones"], correct: "Corazón" },
+                { question: "¿Qué es la fotosíntesis?", options: ["Respiración", "Producción de energía", "Digestión", "Absorción"], correct: "Producción de energía" },
+                { question: "¿Qué ciencia estudia los fósiles?", options: ["Paleontología", "Botánica", "Zoología", "Geología"], correct: "Paleontología" }
+            ],
+            espanol: [
+                { question: "¿Qué es un sustantivo?", options: ["Verbo", "Nombre", "Adjetivo", "Adverbio"], correct: "Nombre" },
+                { question: "¿Cuál es el antónimo de 'alto'?", options: ["Grande", "Bajo", "Largo", "Pequeño"], correct: "Bajo" },
+                { question: "¿Qué tiempo verbal es 'comí'?", options: ["Presente", "Futuro", "Pretérito", "Imperativo"], correct: "Pretérito" },
+                { question: "¿Qué es un sinónimo de 'rápido'?", options: ["Lento", "Veloz", "Triste", "Fuerte"], correct: "Veloz" },
+                { question: "¿Qué signo falta en '¿Dónde estás?'?", options: ["¡", "¿", "!", ","], correct: "¿" },
+                { question: "¿Qué es 'sol' en plural?", options: ["Soles", "Solar", "Solas", "Solis"], correct: "Soles" },
+                { question: "¿Qué tipo de palabra es 'muy'?", options: ["Sustantivo", "Adjetivo", "Adverbio", "Verbo"], correct: "Adverbio" },
+                { question: "¿Qué es un artículo?", options: ["Verbo", "Determinante", "Pronombre", "Conjunción"], correct: "Determinante" },
+                { question: "¿Qué palabra lleva tilde?", options: ["Arbol", "Césped", "Casa", "Sol"], correct: "Césped" },
+                { question: "¿Qué es 'correr'?", options: ["Sustantivo", "Verbo", "Adjetivo", "Preposición"], correct: "Verbo" }
+            ],
+            informatica: [
+                { question: "¿Qué significa CPU?", options: ["Unidad de Control Principal", "Unidad Central de Procesamiento", "Control de Procesos Único", "Unidad de Cálculo Principal"], correct: "Unidad Central de Procesamiento" },
+                { question: "¿Qué es un byte?", options: ["8 bits", "16 bits", "4 bits", "32 bits"], correct: "8 bits" },
+                { question: "¿Qué lenguaje usa 'print'?", options: ["Java", "Python", "C++", "HTML"], correct: "Python" },
+                { question: "¿Qué es el 'cloud computing'?", options: ["Programación local", "Almacenamiento en la nube", "Redes físicas", "Cables"], correct: "Almacenamiento en la nube" },
+                { question: "¿Qué significa URL?", options: ["Unidad de Red Local", "Localizador Uniforme de Recursos", "Unidad de Registro Lineal", "Lenguaje de Red Único"], correct: "Localizador Uniforme de Recursos" },
+                { question: "¿Qué es un firewall?", options: ["Antivirus", "Barrera de seguridad", "Procesador", "Disco duro"], correct: "Barrera de seguridad" },
+                { question: "¿Qué sistema operativo es de código abierto?", options: ["Windows", "macOS", "Linux", "iOS"], correct: "Linux" },
+                { question: "¿Qué hace un 'loop' en programación?", options: ["Repite código", "Termina programa", "Guarda datos", "Muestra error"], correct: "Repite código" },
+                { question: "¿Qué es RAM?", options: ["Memoria de Solo Lectura", "Memoria de Acceso Aleatorio", "Registro Automático de Máquina", "Memoria de Almacenamiento Rápido"], correct: "Memoria de Acceso Aleatorio" },
+                { question: "¿Qué extensión tiene un archivo de Excel?", options: [".docx", ".xlsx", ".pptx", ".txt"], correct: ".xlsx" }
+            ],
+            enfermeria: [
+                { question: "¿Qué mide la presión arterial?", options: ["Frecuencia cardíaca", "Tensión en arterias", "Nivel de oxígeno", "Temperatura"], correct: "Tensión en arterias" },
+                { question: "¿Qué es la fiebre?", options: ["Baja temperatura", "Alta temperatura", "Dolor muscular", "Tos"], correct: "Alta temperatura" },
+                { question: "¿Qué órgano filtra la sangre?", options: ["Hígado", "Riñones", "Corazón", "Pulmones"], correct: "Riñones" },
+                { question: "¿Qué es un catéter?", options: ["Tubo médico", "Medicamento", "Vendaje", "Bisturí"], correct: "Tubo médico" },
+                { question: "¿Qué significa CPR?", options: ["Control de Pulso Rápido", "Reanimación Cardiopulmonar", "Chequeo de Presión Rápida", "Revisión de Paciente Regular"], correct: "Reanimación Cardiopulmonar" },
+                { question: "¿Qué mide un termómetro?", options: ["Presión", "Temperatura", "Pulso", "Oxígeno"], correct: "Temperatura" },
+                { question: "¿Qué es una inyección intramuscular?", options: ["En la piel", "En el músculo", "En la vena", "En el hueso"], correct: "En el músculo" },
+                { question: "¿Qué gas necesitan los humanos para vivir?", options: ["Oxígeno", "Nitrógeno", "Dióxido de carbono", "Helio"], correct: "Oxígeno" },
+                { question: "¿Qué es un estetoscopio?", options: ["Mide presión", "Escucha sonidos internos", "Corta tejido", "Mide temperatura"], correct: "Escucha sonidos internos" },
+                { question: "¿Qué vitamina ayuda a la coagulación?", options: ["Vitamina C", "Vitamina D", "Vitamina K", "Vitamina B"], correct: "Vitamina K" }
+            ],
+            mecanica: [
+                { question: "¿Qué mide la fuerza?", options: ["Newton", "Metro", "Kilogramo", "Watt"], correct: "Newton" },
+                { question: "¿Qué es un engranaje?", options: ["Rueda dentada", "Tornillo", "Palanca", "Polea"], correct: "Rueda dentada" },
+                { question: "¿Qué fluido usa un sistema hidráulico?", options: ["Aire", "Agua", "Aceite", "Gasolina"], correct: "Aceite" },
+                { question: "¿Qué es la fricción?", options: ["Fuerza de resistencia", "Aceleración", "Velocidad", "Energía"], correct: "Fuerza de resistencia" },
+                { question: "¿Qué herramienta aprieta tornillos?", options: ["Destornillador", "Llave inglesa", "Martillo", "Alicate"], correct: "Llave inglesa" },
+                { question: "¿Qué es la inercia?", options: ["Tendencia a moverse", "Tendencia a detenerse", "Resistencia al cambio de movimiento", "Fuerza aplicada"], correct: "Resistencia al cambio de movimiento" },
+                { question: "¿Qué mide el torque?", options: ["Fuerza rotacional", "Velocidad", "Peso", "Distancia"], correct: "Fuerza rotacional" },
+                { question: "¿Qué es una polea?", options: ["Rueda con cuerda", "Tubo", "Engranaje", "Resorte"], correct: "Rueda con cuerda" },
+                { question: "¿Qué ley dice que acción tiene reacción?", options: ["1ª de Newton", "2ª de Newton", "3ª de Newton", "Ley de Gravedad"], correct: "3ª de Newton" },
+                { question: "¿Qué es un pistón?", options: ["Cilindro móvil", "Tornillo", "Rueda", "Válvula"], correct: "Cilindro móvil" }
+            ],
+            contabilidad: [
+                { question: "¿Qué es un activo?", options: ["Deuda", "Recurso", "Pérdida", "Ganancia"], correct: "Recurso" },
+                { question: "¿Qué registra el debe?", options: ["Ingresos", "Egresos", "Aumentos", "Disminuciones"], correct: "Aumentos" },
+                { question: "¿Qué es un pasivo?", options: ["Obligación", "Inversión", "Ganancia", "Capital"], correct: "Obligación" },
+                { question: "¿Qué mide el balance general?", options: ["Flujo de caja", "Situación financiera", "Ventas", "Costos"], correct: "Situación financiera" },
+                { question: "¿Qué es el capital?", options: ["Dinero invertido", "Deuda", "Ingresos", "Gastos"], correct: "Dinero invertido" },
+                { question: "¿Qué registra un diario contable?", options: ["Transacciones", "Presupuestos", "Planes", "Reportes"], correct: "Transacciones" },
+                { question: "¿Qué es la depreciación?", options: ["Pérdida de valor", "Aumento de valor", "Inversión", "Ganancia"], correct: "Pérdida de valor" },
+                { question: "¿Qué es un ingreso?", options: ["Dinero recibido", "Dinero gastado", "Deuda", "Pérdida"], correct: "Dinero recibido" },
+                { question: "¿Qué mide el estado de resultados?", options: ["Ganancias y pérdidas", "Activos", "Pasivos", "Capital"], correct: "Ganancias y pérdidas" },
+                { question: "¿Qué es un crédito?", options: ["Entrada de dinero", "Salida de dinero", "Disminución de activo", "Aumento de pasivo"], correct: "Aumento de pasivo" }
+            ],
+            electricidad: [
+                { question: "¿Qué mide el voltio?", options: ["Corriente", "Resistencia", "Voltaje", "Potencia"], correct: "Voltaje" },
+                { question: "¿Qué es un conductor?", options: ["Material que bloquea corriente", "Material que permite corriente", "Aislante", "Cargador"], correct: "Material que permite corriente" },
+                { question: "¿Qué mide el amperio?", options: ["Voltaje", "Corriente", "Resistencia", "Energía"], correct: "Corriente" },
+                { question: "¿Qué es un ohmio?", options: ["Unidad de resistencia", "Unidad de corriente", "Unidad de voltaje", "Unidad de potencia"], correct: "Unidad de resistencia" },
+                { question: "¿Qué genera electricidad en una batería?", options: ["Reacción química", "Fricción", "Calor", "Luz"], correct: "Reacción química" },
+                { question: "¿Qué es un circuito en serie?", options: ["Corriente por un solo camino", "Corriente por varios caminos", "Sin corriente", "Corriente alterna"], correct: "Corriente por un solo camino" },
+                { question: "¿Qué protege un fusible?", options: ["Sobrecarga", "Baja tensión", "Frecuencia", "Carga"], correct: "Sobrecarga" },
+                { question: "¿Qué es la potencia eléctrica?", options: ["Energía por tiempo", "Corriente por voltaje", "Resistencia por corriente", "Voltaje por tiempo"], correct: "Energía por tiempo" },
+                { question: "¿Qué tipo de corriente usa una casa?", options: ["Directa", "Alterna", "Estática", "Pulsada"], correct: "Alterna" },
+                { question: "¿Qué mide un multímetro?", options: ["Voltaje y corriente", "Temperatura", "Peso", "Distancia"], correct: "Voltaje y corriente" }
+            ],
+            electronica: [
+                { question: "¿Qué es un transistor?", options: ["Interruptor electrónico", "Cable", "Batería", "Resistor"], correct: "Interruptor electrónico" },
+                { question: "¿Qué almacena energía en un circuito?", options: ["Capacitor", "Diodo", "Transistor", "Relé"], correct: "Capacitor" },
+                { question: "¿Qué limita la corriente?", options: ["Resistor", "Capacitor", "Diodo", "Inductor"], correct: "Resistor" },
+                { question: "¿Qué permite corriente en una sola dirección?", options: ["Diodo", "Transistor", "Capacitor", "Resistor"], correct: "Diodo" },
+                { question: "¿Qué es un microchip?", options: ["Circuito integrado", "Cable pequeño", "Batería", "Sensor"], correct: "Circuito integrado" },
+                { question: "¿Qué mide la frecuencia?", options: ["Hertz", "Volt", "Ampere", "Ohm"], correct: "Hertz" },
+                { question: "¿Qué es un LED?", options: ["Diodo emisor de luz", "Resistor luminoso", "Capacitor brillante", "Transistor de luz"], correct: "Diodo emisor de luz" },
+                { question: "¿Qué amplifica señales?", options: ["Amplificador", "Diodo", "Resistor", "Capacitor"], correct: "Amplificador" },
+                { question: "¿Qué es un oscilador?", options: ["Genera señales periódicas", "Mide voltaje", "Almacena energía", "Corta corriente"], correct: "Genera señales periódicas" },
+                { question: "¿Qué es la soldadura en electrónica?", options: ["Unión de componentes", "Corte de cables", "Medición", "Prueba"], correct: "Unión de componentes" }
+            ]
+        };
+
+        const tips = [
+            "🖥️ ¡Lee con atención y domina el desafío!",
+            "💡 Usa pistas para arrasar en tus exámenes.",
+            "⏱ Responde rápido para más puntos.",
+            "🧠 Elimina opciones y sube de nivel.",
+            "🎮 ¡Tú puedes con esto, sigue adelante!"
+        ];
+
+        // Error Boundary Component
+        class ErrorBoundary extends React.Component {
+            state = { hasError: false, error: null };
+            static getDerivedStateFromError(error) {
+                return { hasError: true, error };
+            }
+            render() {
+                if (this.state.hasError) {
+                    return (
+                        <div className="text-center p-6 max-w-md mx-auto neumorphic">
+                            <h1 className="text-2xl font-bold text-red-500">¡Ups, algo salió mal! 🚨</h1>
+                            <p className="mt-4 text-gray-300">
+                                Error: {this.state.error?.message || "Fallo técnico"}<br />
+                                Intenta recargar para volver al juego.
+                            </p>
+                            <button
+                                className="mt-6 bg-lime-500 text-gray-900 font-bold py-2 px-6 rounded-lg neumorphic"
+                                onClick={() => window.location.reload()}
+                                aria-label="Recargar la página"
+                            >
+                                Recargar 🎮
+                            </button>
+                        </div>
+                    );
+                }
+                return this.props.children;
+            }
+        }
+
+        const App = () => {
+            const [screen, setScreen] = useState("loading");
+            const [playerName, setPlayerName] = useState("");
+            const [category, setCategory] = useState("sociales");
+            const [currentQuestion, setCurrentQuestion] = useState(0);
+            const [score, setScore] = useState(0);
+            const [coins, setCoins] = useState(0);
+            const [timeLeft, setTimeLeft] = useState(15);
+            const [countdown, setCountdown] = useState(4);
+            const [highscores, setHighscores] = useState(JSON.parse(localStorage.getItem("highscores")) || []);
+            const [isAnswered, setIsAnswered] = useState(false);
+            const [isSoundOn, setIsSoundOn] = useState(true);
+            const [isTransitioning, setIsTransitioning] = useState(false);
+            const [streak, setStreak] = useState(0);
+            const timerRef = useRef(null);
+
+            // Particle animation for main menu and results screen
+            useEffect(() => {
+                if (screen === "mainMenu" || screen === "results") {
+                    const canvas = document.getElementById("particles");
+                    canvas.width = window.innerWidth;
+                    canvas.height = window.innerHeight;
+                    const ctx = canvas.getContext("2d");
+                    const particleCount = window.innerWidth < 640 ? 80 : 150;
+                    const colors = ["#22d3ee", "#ec4899", "#10b981"];
+                    const particles = [];
+
+                    for (let i = 0; i < particleCount; i++) {
+                        particles.push({
+                            x: Math.random() * canvas.width,
+                            y: Math.random() * canvas.height,
+                            radius: Math.random() * 3 + 1,
+                            vx: Math.random() * 1 - 0.5,
+                            vy: Math.random() * 1 - 0.5,
+                            color: colors[Math.floor(Math.random() * colors.length)],
+                            opacity: Math.random() * 0.5 + 0.5
+                        });
+                    }
+
+                    const animate = () => {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        particles.forEach(p => {
+                            p.x += p.vx;
+                            p.y += p.vy;
+                            if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+                            if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+                            ctx.beginPath();
+                            ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                            ctx.fillStyle = p.color;
+                            ctx.globalAlpha = p.opacity;
+                            ctx.fill();
+                            ctx.globalAlpha = 1;
+                        });
+                        requestAnimationFrame(animate);
+                    };
+                    animate();
+
+                    // Play background music for main menu
+                    if (screen === "mainMenu" && isSoundOn) {
+                        const music = document.getElementById("menu-music");
+                        if (music) music.play().catch(() => {});
+                    }
+
+                    return () => {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        const music = document.getElementById("menu-music");
+                        if (music) music.pause();
+                    };
+                }
+            }, [screen, isSoundOn]);
+
+            // Loading screen
+            useEffect(() => {
+                if (screen === "loading") {
+                    const timer = setTimeout(() => {
+                        setIsTransitioning(true);
+                        setTimeout(() => {
+                            setScreen("rules");
+                            setIsTransitioning(false);
+                        }, 500);
+                    }, 5000);
+                    return () => clearTimeout(timer);
+                }
+            }, [screen]);
+
+            // Countdown
+            useEffect(() => {
+                if (screen === "countdown") {
+                    if (isSoundOn) {
+                        const tickSound = document.getElementById("tick-sound");
+                        tickSound.play().catch(() => {});
+                    }
+                    const interval = setInterval(() => {
+                        setCountdown(prev => {
+                            if (prev === 1) {
+                                clearInterval(interval);
+                                setIsTransitioning(true);
+                                setTimeout(() => {
+                                    setScreen("quiz");
+                                    setTimeLeft(15);
+                                    setIsTransitioning(false);
+                                }, 500);
+                                return 4;
+                            }
+                            return prev - 1;
+                        });
+                    }, 1000);
+                    return () => clearInterval(interval);
+                }
+            }, [screen, isSoundOn]);
+
+            // Quiz timer with debouncing
+            useEffect(() => {
+                if (screen === "quiz" && !isAnswered) {
+                    timerRef.current = setInterval(() => {
+                        setTimeLeft(prev => {
+                            if (prev <= 5 && isSoundOn) {
+                                const clockTick = document.getElementById("clock-tick");
+                                clockTick.play().catch(() => {});
+                            }
+                            if (prev <= 1) {
+                                clearInterval(timerRef.current);
+                                checkAnswer(null);
+                                return 15;
+                            }
+                            return prev - 1;
+                        });
+                    }, 1000);
+                    return () => clearInterval(timerRef.current);
+                }
+            }, [screen, currentQuestion, isAnswered, isSoundOn]);
+
+            const saveName = () => {
+                if (playerName.trim()) {
+                    setIsTransitioning(true);
+                    setTimeout(() => {
+                        setScreen("mainMenu");
+                        setIsTransitioning(false);
+                    }, 500);
+                } else {
+                    alert("¡Ingresa tu nombre, crack! 😎");
+                }
+            };
+
+            const goToCategory = () => {
+                setIsTransitioning(true);
+                setTimeout(() => {
+                    setScreen("category");
+                    setIsTransitioning(false);
+                }, 500);
+            };
+
+            const viewHighscores = () => {
+                setIsTransitioning(true);
+                setTimeout(() => {
+                    setScreen("results");
+                    setIsTransitioning(false);
+                }, 500);
+            };
+
+            const startQuiz = () => {
+                setIsTransitioning(true);
+                setTimeout(() => {
+                    setScreen("countdown");
+                    setIsTransitioning(false);
+                }, 500);
+            };
+
+            const checkAnswer = (selected) => {
+                if (isAnswered) return;
+                setIsAnswered(true);
+                const q = quizData[category][currentQuestion];
+
+                if (selected === q.correct) {
+                    if (isSoundOn) {
+                        const correctSound = document.getElementById("correct-sound");
+                        correctSound.play().catch(() => {});
+                    }
+                    confetti({
+                        particleCount: 150,
+                        spread: 90,
+                        origin: { y: 0.6 },
+                        colors: ["#22d3ee", "#ec4899", "#10b981"]
+                    });
+                    setScore(prev => prev + (timeLeft > 10 ? 15 : 10));
+                    setCoins(prev => prev + 5);
+                    setStreak(prev => prev + 1);
+                } else {
+                    if (isSoundOn) {
+                        const wrongSound = document.getElementById("wrong-sound");
+                        wrongSound.play().catch(() => {});
+                    }
+                    setScore(prev => prev - 5);
+                    setStreak(0);
+                    document.getElementById("quiz-screen")?.classList.add("shake");
+                    setTimeout(() => document.getElementById("quiz-screen")?.classList.remove("shake"), 600);
+                }
+
+                setTimeout(() => {
+                    setIsAnswered(false);
+                    setCurrentQuestion(prev => {
+                        if (prev + 1 < quizData[category].length) {
+                            setTimeLeft(15);
+                            return prev + 1;
+                        } else {
+                            saveHighscore();
+                            setIsTransitioning(true);
+                            setTimeout(() => {
+                                setScreen("results");
+                                setIsTransitioning(false);
+                            }, 500);
+                            return 0;
+                        }
+                    });
+                }, 1500);
+            };
+
+            const useHint = () => {
+                if (coins >= 10) {
+                    setCoins(prev => prev - 10);
+                    const q = quizData[category][currentQuestion];
+                    const options = document.querySelectorAll(".option");
+                    let removed = 0;
+                    options.forEach(option => {
+                        if (option.textContent !== q.correct && removed < 2) {
+                            option.style.display = "none";
+                            removed++;
+                        }
+                    });
+                } else {
+                    alert("¡Necesitas más monedas, sigue jugando! 🤑");
+                }
+            };
+
+            const saveHighscore = () => {
+                const newHighscores = [...highscores, { name: playerName, score }].sort((a, b) => b.score - a.score).slice(0, 5);
+                setHighscores(newHighscores);
+                localStorage.setItem("highscores", JSON.stringify(newHighscores));
+            };
+
+            const resetGame = () => {
+                setIsTransitioning(true);
+                setTimeout(() => {
+                    setScreen("loading");
+                    setPlayerName("");
+                    setCategory("sociales");
+                    setCurrentQuestion(0);
+                    setScore(0);
+                    setCoins(0);
+                    setTimeLeft(15);
+                    setCountdown(4);
+                    setIsAnswered(false);
+                    setStreak(0);
+                    setIsTransitioning(false);
+                }, 500);
+            };
+
+            const toggleSound = () => {
+                setIsSoundOn(prev => !prev);
+            };
+
+            const shareScore = () => {
+                alert("¡Función de compartir en desarrollo! Tu puntuación: " + score);
+            };
+
+            const getMotivationalMessage = () => {
+                if (score >= 100) return "¡Eres un genio total! 🧠🔥";
+                if (score >= 70) return "¡Vas por buen camino, crack! 💪";
+                if (score >= 30) return "¡Sigue así, estás cerca del top! 🎯";
+                return "¡Cada respuesta te hace más fuerte! 💡";
+            };
+
+            const MotionDiv = useMotion ? motion.div : 'div';
+
+            return (
+                <ErrorBoundary>
+                    <div className="flex items-center justify-center min-h-screen p-2 sm:p-4">
+                        {isTransitioning && <div className="spinner fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"></div>}
+                        <AnimatePresence>
+                            {screen === "loading" && (
+                                <MotionDiv
+                                    key="loading"
+                                    initial={useMotion ? { opacity: 0, scale: 0.8 } : {}}
+                                    animate={useMotion ? { opacity: 1, scale: 1 } : {}}
+                                    exit={useMotion ? { opacity: 0, scale: 0.8 } : {}}
+                                    className="loading-container"
+                                >
+                                    <h1 className="text-3xl sm:text-4xl font-bold text-lime-500 mb-8">Brain Surge 🖥️</h1>
+                                    <div className="loading-bar-container">
+                                        <div className="loading-bar"></div>
+                                    </div>
+                                    <p className="tip-text">{tips[Math.floor(Math.random() * tips.length)]}</p>
+                                </MotionDiv>
+                            )}
+                            {screen === "rules" && (
+                                <MotionDiv
+                                    key="rules"
+                                    initial={useMotion ? { opacity: 0, y: -50 } : {}}
+                                    animate={useMotion ? { opacity: 1, y: 0 } : {}}
+                                    exit={useMotion ? { opacity: 0, y: 50 } : {}}
+                                    className="neumorphic rounded-2xl p-4 sm:p-6 w-full max-w-md shadow-xl scrollable-container"
+                                >
+                                    <h1 className="text-2xl sm:text-3xl font-bold text-lime-500 text-center">🧠 Reglas del Juego</h1>
+                                    <ul className="text-sm sm:text-base mt-4 text-gray-300 list-disc list-inside space-y-2">
+                                        <li>⏱ 15 segundos por pregunta.</li>
+                                        <li>✅ Correcto: +10 puntos (+5 si eres rápido).</li>
+                                        <li>❌ Incorrecto: -5 puntos.</li>
+                                        <li>🪙 Gana 5 monedas por acierto, úsalas en pistas (10 monedas).</li>
+                                        <li>🖱 Haz clic para responder.</li>
+                                        <li>🎉 ¡Aprende y sube de nivel!</li>
+                                    </ul>
+                                    <button
+                                        className="mt-6 bg-lime-500 text-gray-900 font-bold py-2 px-6 rounded-lg mx-auto block neumorphic"
+                                        onClick={() => setScreen("name")}
+                                        aria-label="Empezar el juego"
+                                    >
+                                        ¡Empezar! 🎮
+                                    </button>
+                                </MotionDiv>
+                            )}
+                            {screen === "name" && (
+                                <MotionDiv
+                                    key="name"
+                                    initial={useMotion ? { opacity: 0, y: -50 } : {}}
+                                    animate={useMotion ? { opacity: 1, y: 0 } : {}}
+                                    exit={useMotion ? { opacity: 0, y: 50 } : {}}
+                                    className="neumorphic rounded-2xl p-4 sm:p-6 w-full max-w-md shadow-xl scrollable-container"
+                                >
+                                    <h1 className="text-2xl sm:text-3xl font-bold text-lime-500 text-center">✨ Ingresa tu Nick</h1>
+                                    <input
+                                        type="text"
+                                        value={playerName}
+                                        onChange={(e) => setPlayerName(e.target.value)}
+                                        placeholder="Tu nombre aquí"
+                                        className="mt-4 w-full p-2 bg-gray-700 text-gray-200 rounded-lg border border-lime-600 focus:outline-none focus:ring-2 focus:ring-lime-500"
+                                        aria-label="Nombre del jugador"
+                                    />
+                                    <button
+                                        className="mt-6 bg-lime-500 text-gray-900 font-bold py-2 px-6 rounded-lg mx-auto block neumorphic"
+                                        onClick={saveName}
+                                        aria-label="Continuar con el nombre ingresado"
+                                    >
+                                        Continuar
+                                    </button>
+                                </MotionDiv>
+                            )}
+                            {screen === "mainMenu" && (
+                                <MotionDiv
+                                    key="mainMenu"
+                                    initial={useMotion ? { opacity: 0, scale: 0.9 } : {}}
+                                    animate={useMotion ? { opacity: 1, scale: 1 } : {}}
+                                    exit={useMotion ? { opacity: 0, scale: 0.9 } : {}}
+                                    className="main-menu"
+                                >
+                                    <canvas id="particles" className="particle-canvas"></canvas>
+                                    <div className="player-info">Jugador: {playerName}</div>
+                                    <h1 className="menu-title">Brain Surge 🖥️</h1>
+                                    <div className="menu-buttons">
+                                        <button className="menu-button" onClick={goToCategory} aria-label="Iniciar desafío">Iniciar Desafío 🎯</button>
+                                        <button className="menu-button" onClick={viewHighscores} aria-label="Ver leaderboard">Leaderboard 🏆</button>
+                                        <button className="menu-button" onClick={toggleSound} aria-label={isSoundOn ? "Desactivar sonido" : "Activar sonido"}>
+                                            {isSoundOn ? "Sonido: ON 🔊" : "Sonido: OFF 🔇"}
+                                        </button>
+                                        <button className="menu-button" onClick={resetGame} aria-label="Salir del juego">Salir 📴</button>
+                                    </div>
+                                </MotionDiv>
+                            )}
+                            {screen === "category" && (
+                                <MotionDiv
+                                    key="category"
+                                    initial={useMotion ? { opacity: 0, y: -50 } : {}}
+                                    animate={useMotion ? { opacity: 1, y: 0 } : {}}
+                                    exit={useMotion ? { opacity: 0, y: 50 } : {}}
+                                    className="neumorphic rounded-2xl p-4 sm:p-6 w-full max-w-md shadow-xl scrollable-container"
+                                >
+                                    <h1 className="text-2xl sm:text-3xl font-bold text-lime-500 text-center">📚 Elige tu Materia, {playerName}</h1>
+                                    <select
+                                        value={category}
+                                        onChange={(e) => setCategory(e.target.value)}
+                                        className="mt-4 w-full p-2 bg-gray-700 text-gray-200 rounded-lg border border-lime-600 focus:outline-none focus:ring-2 focus:ring-lime-500"
+                                        aria-label="Seleccionar categoría"
+                                    >
+                                        <option value="sociales">Historia Dominicana</option>
+                                        <option value="matematica">Matemáticas</option>
+                                        <option value="naturales">Ciencias Naturales</option>
+                                        <option value="espanol">Lengua Española</option>
+                                        <option value="informatica">Informática</option>
+                                        <option value="enfermeria">Enfermería</option>
+                                        <option value="mecanica">Mecánica</option>
+                                        <option value="contabilidad">Contabilidad</option>
+                                        <option value="electricidad">Electricidad</option>
+                                        <option value="electronica">Electrónica</option>
+                                    </select>
+                                    <button
+                                        className="mt-6 bg-lime-500 text-gray-900 font-bold py-2 px-6 rounded-lg mx-auto block neumorphic"
+                                        onClick={startQuiz}
+                                        aria-label="Iniciar el desafío del quiz"
+                                    >
+                                        ¡Lanzar Desafío! 🎮
+                                    </button>
+                                </MotionDiv>
+                            )}
+                            {screen === "countdown" && (
+                                <MotionDiv
+                                    key="countdown"
+                                    initial={useMotion ? { opacity: 0, scale: 0.8 } : {}}
+                                    animate={useMotion ? { opacity: 1, scale: 1 } : {}}
+                                    exit={useMotion ? { opacity: 0, scale: 0.8 } : {}}
+                                    className="neumorphic rounded-2xl p-4 sm:p-6 w-full max-w-md shadow-xl scrollable-container"
+                                >
+                                    <h1 className="text-2xl sm:text-3xl font-bold text-lime-500 text-center">¿Listo, {playerName}? 🖥️</h1>
+                                    <div className="text-5xl font-bold text-lime-500 text-center mt-6">{countdown}</div>
+                                </MotionDiv>
+                            )}
+                            {screen === "quiz" && (
+                                <MotionDiv
+                                    key="quiz"
+                                    id="quiz-screen"
+                                    initial={useMotion ? { opacity: 0, y: -50 } : {}}
+                                    animate={useMotion ? { opacity: 1, y: 0 } : {}}
+                                    exit={useMotion ? { opacity: 0, y: 50 } : {}}
+                                    className="neumorphic rounded-2xl p-4 sm:p-6 w-full max-w-md shadow-xl relative scrollable-container"
+                                >
+                                    <div className="flex justify-between absolute top-4 left-4 right-4">
+                                        <div className="text-base sm:text-lg font-bold text-lime-500">🪙 Monedas: {coins}</div>
+                                        <div className="text-base sm:text-lg font-bold text-lime-500">{currentQuestion + 1}/{quizData[category].length}</div>
+                                    </div>
+                                    <div className="w-full h-2 bg-gray-700 rounded-full mt-12">
+                                        <div
+                                            className="progress-bar h-full rounded-full"
+                                            style={{ "--progress": `${((currentQuestion + 1) / quizData[category].length) * 100}%` }}
+                                        ></div>
+                                    </div>
+                                    <h1 className="text-2xl sm:text-3xl font-bold text-lime-500 text-center mt-4">Brain Surge 🖥️</h1>
+                                    <div className="text-base sm:text-lg mt-4 text-gray-300 text-center">{quizData[category][currentQuestion].question}</div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 mt-6">
+                                        {quizData[category][currentQuestion].options.map((option, index) => (
+                                            <button
+                                                key={index}
+                                                className={`option p-3 sm:p-4 rounded-lg font-bold border border-lime-600 text-gray-200 text-sm sm:text-base neumorphic ${
+                                                    isAnswered && option === quizData[category][currentQuestion].correct
+                                                        ? "bg-green-500 text-white"
+                                                        : isAnswered && option !== quizData[category][currentQuestion].correct
+                                                        ? "bg-red-500 text-white"
+                                                        : "hover:bg-lime-800"
+                                                }`}
+                                                onClick={() => checkAnswer(option)}
+                                                disabled={isAnswered}
+                                                aria-label={`Opción ${option}`}
+                                            >
+                                                {option}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="text-xl sm:text-2xl font-bold text-lime-500 text-center mt-4">⏱ Tiempo: {timeLeft}s</div>
+                                    <div
+                                        className="w-12 h-12 mx-auto mt-4 bg-center bg-no-repeat bg-contain"
+                                        style={{ backgroundImage: "url('https://img.icons8.com/ios-filled/50/22d3ee/clock.png')" }}
+                                    ></div>
+                                    <div className="flex justify-between mt-4">
+                                        <div className="text-base sm:text-lg text-gray-300">Puntuación: {score} 🔥</div>
+                                        <div className="text-base sm:text-lg text-gray-300">Racha: {streak} 💪</div>
+                                    </div>
+                                    <div className="flex justify-center gap-4 mt-4">
+                                        <button
+                                            className="text-2xl sm:text-3xl text-lime-500"
+                                            onClick={useHint}
+                                            disabled={isAnswered}
+                                            aria-label="Usar pista"
+                                        >
+                                            💡
+                                        </button>
+                                        <button
+                                            className="text-2xl sm:text-3xl text-lime-500"
+                                            onClick={toggleSound}
+                                            aria-label={isSoundOn ? "Desactivar sonido" : "Activar sonido"}
+                                        >
+                                            {isSoundOn ? "🔊" : "🔇"}
+                                        </button>
+                                    </div>
+                                </MotionDiv>
+                            )}
+                            {screen === "results" && (
+                                <MotionDiv
+                                    key="results"
+                                    initial={useMotion ? { opacity: 0, y: -50 } : {}}
+                                    animate={useMotion ? { opacity: 1, y: 0 } : {}}
+                                    exit={useMotion ? { opacity: 0, y: 50 } : {}}
+                                    className="neumorphic rounded-2xl p-4 sm:p-6 w-full max-w-md shadow-xl scrollable-container"
+                                >
+                                    <div className="absolute top-4 left-4 text-base sm:text-lg font-bold text-lime-500">🪙 Monedas: {coins}</div>
+                                    <h1 className="text-2xl sm:text-3xl font-bold text-lime-500 text-center">¡Desafío Completado, {playerName}! 🎉</h1>
+                                    <div className="text-4xl sm:text-5xl font-bold text-lime-500 text-center mt-4">
+                                        {score} <span className="text-2xl">{score >= 100 ? "🥇" : score >= 70 ? "🥈" : "🥉"}</span>
+                                    </div>
+                                    <p className="text-base sm:text-lg text-gray-300 text-center mt-2">{getMotivationalMessage()}</p>
+                                    <div className="mt-6 max-h-[50vh] overflow-y-auto scrollable-container" id="results-container">
+                                        <h2 className="text-lg sm:text-xl font-bold text-lime-500 text-center">🏆 Leaderboard</h2>
+                                        <div className="mt-2">
+                                            {highscores.map((s, index) => (
+                                                <MotionDiv
+                                                    key={index}
+                                                    initial={useMotion ? { opacity: 0, x: -20 } : {}}
+                                                    animate={useMotion ? { opacity: 1, x: 0 } : {}}
+                                                    transition={{ delay: index * 0.1 }}
+                                                    className={`highscore-row p-2 rounded-lg text-gray-200 text-sm sm:text-base flex justify-between ${
+                                                        s.name === playerName && s.score === score ? "player-score" : ""
+                                                    }`}
+                                                >
+                                                    <span>#{index + 1}</span>
+                                                    <span>{s.name}</span>
+                                                    <span>{s.score} 🔥</span>
+                                                </MotionDiv>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-center gap-4 mt-4">
+                                        <button
+                                            className="bg-lime-500 text-gray-900 font-bold py-2 px-4 rounded-lg neumorphic"
+                                            onClick={() => document.getElementById("results-container").scrollBy({ top: -100, behavior: "smooth" })}
+                                            aria-label="Desplazar hacia arriba"
+                                        >
+                                            ↑ Subir
+                                        </button>
+                                        <button
+                                            className="bg-lime-500 text-gray-900 font-bold py-2 px-4 rounded-lg neumorphic"
+                                            onClick={() => document.getElementById("results-container").scrollBy({ top: 100, behavior: "smooth" })}
+                                            aria-label="Desplazar hacia abajo"
+                                        >
+                                            ↓ Bajar
+                                        </button>
+                                    </div>
+                                    <div className="flex justify-center gap-4 mt-6">
+                                        <button
+                                            className="bg-lime-500 text-gray-900 font-bold py-2 px-6 rounded-lg neumorphic"
+                                            onClick={shareScore}
+                                            aria-label="Compartir puntuación"
+                                        >
+                                            Compartir 📤
+                                        </button>
+                                        <button
+                                            className="bg-lime-500 text-gray-900 font-bold py-2 px-6 rounded-lg neumorphic"
+                                            onClick={resetGame}
+                                            aria-label="Iniciar nuevo desafío"
+                                        >
+                                            Nuevo Desafío 🎮
+                                        </button>
+                                    </div>
+                                </MotionDiv>
+                            )}
+                        </AnimatePresence>
+                    </div>
+                </ErrorBoundary>
+            );
+        };
+
+        // Strict Framer Motion load check
+        const checkFramerMotion = (attempts = 0) => {
+            if (window.motion || attempts > 20) {
+                ReactDOM.render(<App />, document.getElementById("root"));
+            } else {
+                setTimeout(() => checkFramerMotion(attempts + 1), 100);
+            }
+        };
+        checkFramerMotion();
+    </script>
+</body>
+</html>
